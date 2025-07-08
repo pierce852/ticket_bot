@@ -1,0 +1,17 @@
+{
+  "cityline": {
+    "username": "your_cityline_account",
+    "password": "your_cityline_password",
+    "event_url": "https://www.cityline.com/event/xxx",
+    "ticket_type": "A區",
+    "ticket_quantity": 2
+  },
+  "urbtix": {
+    "username": "pierce64",
+    "password": "1994Y6m4d!",
+    "event_url": "https://www.urbtix.hk/member-login",
+    "event_name": "陳慧琳演唱會",
+    "ticket_type": "B區",
+    "ticket_quantity": 2
+  }
+} 
