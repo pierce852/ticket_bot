@@ -6,28 +6,28 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# 我們需要 selenium-wire 來攔截網路請求，它是一個 selenium 的擴充
-# 請務必先執行: pip install selenium-wire
-# 同時，我們繼續使用 undetected_chromedriver 來更好地偽裝瀏覽器
+# We need selenium-wire to intercept network requests. It's an extension for selenium.
+# Please make sure to run: pip install selenium-wire
+# We will also continue to use undetected_chromedriver to better disguise the browser.
 import seleniumwire.undetected_chromedriver as uc
 
 class CitylineBot:
     def __init__(self):
         """
-        初始化 Bot，載入設定並建立一個 requests.Session 來管理 cookies。
+        Initializes the Bot, loads settings, and creates a requests.Session to manage cookies.
         """
         self.settings = self._load_settings()
         self.session = requests.Session()
-        # 更新 User-Agent，讓 requests 的請求看起來更像真實瀏覽器
+        self.driver = None  # Initialize driver as a class attribute
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Referer": self.settings['event_url']
         })
-        print("[Cityline] Bot 初始化完成。")
+        print("[Cityline] Bot initialized.")
 
     def _load_settings(self):
         """
-        從 settings.json 載入設定。
+        Loads settings from settings.json.
         """
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
         with open(settings_path, 'r', encoding='utf-8') as f:
@@ -35,119 +35,124 @@ class CitylineBot:
 
     def _get_google_login_token(self):
         """
-        使用 selenium-wire 啟動瀏覽器，讓使用者手動登入，並從中攔截 Google 登入的 accessToken。
-        這是整個混合模式最關鍵的一步。
+        Uses selenium-wire to launch a browser, lets the user log in manually,
+        and intercepts the accessToken from the Google login process.
+        The browser will remain open.
         """
-        print("[Cityline] 啟動瀏覽器以進行手動登入...")
-        print("[Cityline] 請在彈出的瀏覽器視窗中，手動點擊登入並完成 Google 登入流程。")
-        print("[Cityline] 程式將會自動監聽並捕獲登入成功後的 token...")
+        print("[Cityline] Launching browser for manual login...")
+        print("[Cityline] Please manually click login and complete the Google login process in the popup window.")
+        print("[Cityline] The script will automatically listen for and capture the token after successful login...")
 
-        # 設定 selenium-wire 的選項，讓它自動處理憑證問題
-        seleniumwire_options = {
+        # Configure selenium-wire options
+        selenium_wire_options = {
             'verify_ssl': False,
-            'disable_capture': False, # 我們需要捕獲請求
+            'disable_capture': False,
         }
 
-        # 設定 Chrome 選項，加入忽略憑證錯誤的參數
+        # Configure Chrome options
         chrome_options = uc.ChromeOptions()
         chrome_options.add_argument('--ignore-certificate-errors')
         
-        # 使用 selenium-wire 的 undetected_chromedriver，並傳入設定
-        driver = uc.Chrome(
+        # Use selenium-wire's undetected_chromedriver with the specified options
+        self.driver = uc.Chrome(
             options=chrome_options,
-            seleniumwire_options=seleniumwire_options
+            seleniumwire_options=selenium_wire_options,
+            version_main=138  # Specify Chrome major version
         )
         
         try:
-            # 前往活動頁面，觸發登入流程
-            driver.get(self.settings['event_url'])
+            # Go to the event page to trigger the login process
+            self.driver.get(self.settings['event_url'])
 
-            # 等待發送到 Cityline Google 登入 API 的請求
-            # 這裡我們設置了長達 5 分鐘的超時，讓使用者有足夠的時間完成登入
-            request = driver.wait_for_request(
+            # Wait for the request to Cityline's Google login API
+            request = self.driver.wait_for_request(
                 '/api/login/google.do',
                 timeout=300
             )
             
-            print("[Cityline] 成功攔截到登入請求！")
+            print("[Cityline] Successfully intercepted login request!")
 
-            # 從攔截到的請求中，解析出 body，再從 body 中提取 accessToken
             body = request.body.decode('utf-8')
             payload = json.loads(body)
             access_token = payload.get('accessToken')
 
             if not access_token:
-                print("[Cityline] 錯誤：在攔截到的請求中未找到 accessToken。")
+                print("[Cityline] Error: accessToken not found in the intercepted request.")
                 return None
 
-            print(f"[Cityline] 成功獲取 accessToken！")
+            print(f"[Cityline] Successfully acquired accessToken!")
             
-            # 提取瀏覽器中的 cookies 並注入到我們的 requests.Session 中
-            print("[Cityline] 正在從瀏覽器同步 Cookies...")
-            cookies = driver.get_cookies()
+            print("[Cityline] Syncing cookies from browser...")
+            cookies = self.driver.get_cookies()
             for cookie in cookies:
                 self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
             
-            print("[Cityline] Cookies 同步完成。")
+            print("[Cityline] Cookies synced.")
             return access_token
 
         except Exception as e:
-            print(f"[Cityline] 在獲取 accessToken 過程中發生錯誤: {e}")
+            print(f"[Cityline] An error occurred while acquiring accessToken: {e}")
             return None
-        finally:
-            # 無論成功或失敗，都關閉瀏覽器
-            print("[Cityline] 關閉瀏覽器。")
-            driver.quit()
+        # Note: We removed driver.quit() from the finally block to keep the browser open
 
     def login(self):
         """
-        執行完整的登入流程。
+        Executes the complete login flow.
         """
-        # 步驟 1: 透過 selenium-wire 獲取 accessToken
         access_token = self._get_google_login_token()
 
         if not access_token:
-            print("[Cityline] 登入失敗：未能獲取 accessToken。")
+            print("[Cityline] Login failed: Could not acquire accessToken.")
             return False
 
-        # 步驟 2: 使用獲取到的 accessToken 和同步好的 cookies，透過 requests 驗證登入狀態
-        # 雖然 accessToken 可能已經被瀏覽器發送過一次，但我們自己再次發送可以確保 session 狀態，並便於後續操作
-        print("[Cityline] 正在使用 requests 驗證登入狀態...")
-        
-        # 檢查登入狀態的 API (這是我們之前分析出的第三個請求)
+        print("[Cityline] Verifying login status using requests...")
         user_api_url = "https://www.cityline.com/api/user.do"
         
         try:
             response = self.session.get(user_api_url)
-            response.raise_for_status() # 如果請求失敗 (如 4xx, 5xx)，會拋出異常
+            response.raise_for_status()
             
             user_info = response.json().get("userInfo")
             if user_info and user_info.get("loginId"):
-                print(f"[Cityline] 登入成功！歡迎，{user_info.get('name')} ({user_info.get('loginId')})")
+                print(f"[Cityline] Login successful! Welcome, {user_info.get('name')} ({user_info.get('loginId')})")
                 return True
             else:
-                print("[Cityline] 登入驗證失敗，未能獲取用戶資訊。")
-                print(f"[Cityline] 回應: {response.text}")
+                print("[Cityline] Login verification failed, could not retrieve user information.")
+                print(f"[Cityline] Response: {response.text}")
                 return False
 
         except requests.exceptions.RequestException as e:
-            print(f"[Cityline] 登入驗證請求失敗: {e}")
+            print(f"[Cityline] Login verification request failed: {e}")
             return False
 
     def run(self):
         """
-        執行機器人的主流程。
+        Executes the main bot flow.
         """
-        print("==============================================")
-        print(f"[Cityline] 目標活動: {self.settings['event_url']}")
-        print("==============================================")
+        print("=================================================")
+        print(f"[Cityline] Target Event: {self.settings['event_url']}")
+        print("=================================================")
         
         if self.login():
-            # TODO: 在這裡繼續執行搶票的邏輯
-            print("[Cityline] 登入成功，已準備就緒，可以開始分析搶票 API。")
-            pass
+            print("\n==================== FINAL RECONNAISSANCE ====================")
+            print("[Cityline] Login successful. The browser will remain open.")
+            print(">>> Please switch to the browser window now.")
+            print(">>> Manually navigate to the page where you select ticket price and quantity.")
+            print(">>> STOP on that page, right before you would click the final 'Confirm' button.")
+            print("\n>>> Once on that page, use the F12 DevTools to find where the security tokens are stored.")
+            print("    1. Check the 'Elements' tab: Search for hidden inputs like <input type=\"hidden\"> with values for 'challengeTs' or 'dataString'.")
+            print("    2. Check the 'Console' tab: Type in possible JavaScript variable names like 'challengeTs', 'dataString', or inspect the 'window' object.")
+            print("\n>>> Our goal is to find the location of these dynamic tokens.")
+            input(">>> Press Enter here when you are finished investigating to close the browser...")
+
         else:
-            print("[Cityline] 登入失敗，程式結束。")
+            print("[Cityline] Login failed. Exiting program.")
+        
+        # Ensure the browser is closed before the program exits
+        if self.driver:
+            print("[Cityline] Closing browser...")
+            self.driver.quit()
+            print("[Cityline] Browser closed.")
 
 
 def run():
