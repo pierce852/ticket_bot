@@ -134,16 +134,50 @@ class CitylineBot:
         print("=================================================")
         
         if self.login():
-            print("\n==================== FINAL RECONNAISSANCE ====================")
+            print("\n================ AUTOMATED RECONNAISSANCE ================")
             print("[Cityline] Login successful. The browser will remain open.")
             print(">>> Please switch to the browser window now.")
             print(">>> Manually navigate to the page where you select ticket price and quantity.")
-            print(">>> STOP on that page, right before you would click the final 'Confirm' button.")
-            print("\n>>> Once on that page, use the F12 DevTools to find where the security tokens are stored.")
-            print("    1. Check the 'Elements' tab: Search for hidden inputs like <input type=\"hidden\"> with values for 'challengeTs' or 'dataString'.")
-            print("    2. Check the 'Console' tab: Type in possible JavaScript variable names like 'challengeTs', 'dataString', or inspect the 'window' object.")
-            print("\n>>> Our goal is to find the location of these dynamic tokens.")
-            input(">>> Press Enter here when you are finished investigating to close the browser...")
+            print(">>> STOP on that page. Once ready, come back here.")
+            input(">>> Press Enter in this terminal to START THE AUTOMATED SCAN...")
+            
+            print("\n[Recon] Starting scan on the current page...")
+            
+            # 1. Search for hidden input fields
+            print("[Recon] --- Searching for hidden input fields ---")
+            try:
+                hidden_inputs = self.driver.find_elements(By.CSS_SELECTOR, "input[type='hidden']")
+                if hidden_inputs:
+                    found = False
+                    for i in hidden_inputs:
+                        name = i.get_attribute('name')
+                        value = i.get_attribute('value')
+                        if name and name in ['challengeTs', 'dataString', 'val']:
+                            print(f"[Recon] Found matching hidden input: name='{name}', value='{value}'")
+                            found = True
+                    if not found:
+                        print("[Recon] Scanned all hidden inputs, but none matched the target names.")
+                else:
+                    print("[Recon] No hidden input fields found on the page.")
+            except Exception as e:
+                print(f"[Recon] Error while searching for hidden inputs: {e}")
+
+            # 2. Search for JavaScript global variables
+            print("\n[Recon] --- Searching for JavaScript global variables ---")
+            js_vars_to_check = ['challengeTs', 'dataString', 'val']
+            for var_name in js_vars_to_check:
+                try:
+                    value = self.driver.execute_script(f"return window.{var_name};")
+                    if value is not None:
+                        print(f"[Recon] Found JS variable '{var_name}' with value: {value}")
+                    else:
+                        print(f"[Recon] JS variable '{var_name}' returned None or is not defined.")
+                except Exception as e:
+                    # The exception message "javascript error: ... is not defined" is expected
+                    print(f"[Recon] JS variable '{var_name}' not found or error accessing it.")
+
+            print("\n[Recon] Scan complete.")
+            input(">>> Press Enter to close the browser and exit...")
 
         else:
             print("[Cityline] Login failed. Exiting program.")
